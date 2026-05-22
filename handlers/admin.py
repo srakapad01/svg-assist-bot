@@ -6,6 +6,7 @@ from settings import get_active_sheet, set_active_sheet
 from google.oauth2.service_account import Credentials
 import gspread
 from utils import has_access
+import os
 
 router = Router()
 
