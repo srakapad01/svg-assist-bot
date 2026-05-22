@@ -1,0 +1,17 @@
+# Secrets
+.env
+credentials.json
+
+# Database / data files
+*.db
+users.json
+motivation.json
+tips.json
+schedules.json
+settings.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
