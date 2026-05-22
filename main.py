@@ -52,6 +52,9 @@ class RemoveRoleState(StatesGroup):
     waiting_user = State()
     waiting_role = State()
 
+class BugReportState(StatesGroup):
+    waiting_text = State()
+
 # ─── Старт ──────────────────────────────────────────────────
 
 @dp.message(Command("start"))
@@ -68,7 +71,7 @@ async def start(message: Message, role: str = None, state: FSMContext = None):
         return
 
     if role is None:
-        sent = await message.answer(
+        await message.answer(
             "Привет, " + user["fullname"] + "!\n"
             "Твоя заявка на рассмотрении. Ожидай подтверждения."
         )
@@ -127,18 +130,14 @@ async def confirm_name(callback: CallbackQuery, state: FSMContext = None):
             except:
                 pass
 
-    sent = await callback.message.answer(
+    await callback.message.answer(
         "Отлично, " + fullname + "! Твоя заявка отправлена.\nОжидай подтверждения."
     )
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data == "change_name")
 async def change_name(callback: CallbackQuery, state: FSMContext = None):
-    sent = await callback.message.answer("Введи фамилию и имя заново:")
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+    await callback.message.answer("Введи фамилию и имя заново:")
     await state.set_state(Registration.waiting_for_name)
     await callback.answer()
 
@@ -148,18 +147,14 @@ async def approve_user(callback: CallbackQuery, state: FSMContext = None):
     db = await load_db()
     user = db.get(str(user_id))
     if not user:
-        sent = await callback.message.answer("Пользователь не найден.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+        await callback.message.answer("Пользователь не найден.")
         return
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=label, callback_data="role_" + str(user_id) + "_" + role)]
         for role, label in ALL_ROLES.items()
         if role != "owner"
     ])
-    sent = await callback.message.answer("Выбери роль для " + user["fullname"] + ":", reply_markup=keyboard)
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+    await callback.message.answer("Выбери роль для " + user["fullname"] + ":", reply_markup=keyboard)
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("role_") and len(c.data.split("_")) >= 3)
@@ -170,19 +165,15 @@ async def assign_role(callback: CallbackQuery, state: FSMContext = None):
     db = await load_db()
     user = db.get(str(user_id))
     if not user:
-        sent = await callback.message.answer("Пользователь не найден.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+        await callback.message.answer("Пользователь не найден.")
         return
 
     existing_roles = await get_roles(user_id)
     if len(existing_roles) >= 3:
-        sent = await callback.message.answer(
+        await callback.message.answer(
             "У сотрудника " + user["fullname"] + " уже 3 роли!\n"
             "Сначала удалите одну через 👑 Управление ролями"
         )
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
         await callback.answer()
         return
 
@@ -192,9 +183,7 @@ async def assign_role(callback: CallbackQuery, state: FSMContext = None):
         from handlers.schedule import add_to_staff_sheet
         await add_to_staff_sheet(user["fullname"], role)
 
-    sent = await callback.message.answer("Роль " + ALL_ROLES.get(role, role) + " назначена " + user["fullname"])
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+    await callback.message.answer("Роль " + ALL_ROLES.get(role, role) + " назначена " + user["fullname"])
     try:
         new_role = await get_role(user_id)
         new_roles = await get_roles(user_id)
@@ -206,20 +195,16 @@ async def assign_role(callback: CallbackQuery, state: FSMContext = None):
     except:
         pass
     await callback.answer()
-    
+
 @dp.callback_query(lambda c: c.data.startswith("reject_"))
 async def reject_user(callback: CallbackQuery, state: FSMContext = None):
     user_id = int(callback.data[7:])
     db = await load_db()
     user = db.get(str(user_id))
     if not user:
-        sent = await callback.message.answer("Пользователь не найден.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+        await callback.message.answer("Пользователь не найден.")
         return
-    sent = await callback.message.answer("Заявка " + user["fullname"] + " отклонена.")
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+    await callback.message.answer("Заявка " + user["fullname"] + " отклонена.")
     try:
         await bot.send_message(user_id, "К сожалению твоя заявка была отклонена.")
     except:
@@ -232,32 +217,27 @@ async def reject_user(callback: CallbackQuery, state: FSMContext = None):
 async def my_schedule(message: Message, role: str = None, state: FSMContext = None):
     from handlers.schedule import find_current_month_sheet, get_spreadsheet, find_employee_row
     from database import get_active_sheet
-    active_sheet = await get_active_sheet("schedule")
+    username = message.from_user.username or ""
+    db = await load_db()
     fullname = None
     for uid, info in db.items():
         if info.get("username", "").lower() == username.lower():
             fullname = info.get("fullname")
             break
     if not fullname:
-        sent = await message.answer("Ты не найден в базе. Напиши /start")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Ты не найден в базе. Напиши /start")
         return
-    active_sheet = get_active_sheet("schedule")
+    active_sheet = await get_active_sheet("schedule")
     sheet_name = active_sheet if active_sheet else await find_current_month_sheet()
     if not sheet_name:
-        sent = await message.answer("Лист для текущего месяца не найден.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Лист для текущего месяца не найден.")
         return
     try:
         spreadsheet = await get_spreadsheet()
         worksheet = await spreadsheet.worksheet(sheet_name)
         row = await find_employee_row(worksheet, fullname)
         if not row:
-            sent = await message.answer("Ты не найден в таблице графика.")
-            if state:
-                await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+            await message.answer("Ты не найден в таблице графика.")
             return
         header = await worksheet.row_values(2)
         row_values = await worksheet.row_values(row)
@@ -268,15 +248,11 @@ async def my_schedule(message: Message, role: str = None, state: FSMContext = No
                 text += header[i] + " — " + val + "\n"
                 has_shifts = True
         if not has_shifts:
-            sent = await message.answer("У тебя пока нет смен.")
+            await message.answer("У тебя пока нет смен.")
         else:
-            sent = await message.answer(text)
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+            await message.answer(text)
     except Exception as e:
-        sent = await message.answer("Ошибка: " + str(e))
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Ошибка: " + str(e))
 
 @dp.message(F.text == "💰 Мои чаевые")
 async def my_tips(message: Message, role: str = None, state: FSMContext = None):
@@ -285,18 +261,7 @@ async def my_tips(message: Message, role: str = None, state: FSMContext = None):
 
 @dp.message(F.text == "📚 База знаний")
 async def knowledge_base(message: Message, role: str = None, state: FSMContext = None):
-    sent = await message.answer("База знаний — в разработке.")
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
-    # Возвращаем в главное меню
-    user_id = message.from_user.id
-    if role:
-        roles_list = await get_roles(user_id)
-        menu_msg = await message.answer("Главное меню:", reply_markup=main_menu(role, roles=roles_list))
-    else:
-        menu_msg = await message.answer("Главное меню:")
-    if state:
-        await state.update_data(last_bot_msg_id=menu_msg.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer("База знаний — в разработке.")
 
 @dp.message(F.text == "🏆 Моя мотивация")
 async def my_motivation(message: Message, role: str = None, state: FSMContext = None):
@@ -307,25 +272,20 @@ async def my_motivation(message: Message, role: str = None, state: FSMContext = 
 async def manage_schedule(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
-        sent = await message.answer("Нет доступа.")
+        await message.answer("Нет доступа.")
     else:
-        sent = await message.answer("Управление графиком:", reply_markup=schedule_menu())
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Управление графиком:", reply_markup=schedule_menu())
 
 @dp.message(F.text == "💰 Чаевые")
 async def tips_button(message: Message, role: str = None, roles: list = None, state: FSMContext = None):
     from handlers.tips import tips_entry
-    # Передаём roles, чтобы функция их получила
     await tips_entry(message, role=role, roles=roles, state=state)
 
 @dp.message(F.text == "🏆 Управление мотивацией")
 async def manage_motivation(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
     from handlers.motivation import motivation_start
     await motivation_start(message, role=role, state=state, bot=bot)
@@ -336,68 +296,42 @@ async def add_employee(message: Message, role: str = None, state: FSMContext = N
     if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
         await message.answer("Нет доступа.")
         return
-    sent = await message.answer(
+    await message.answer(
         "Чтобы добавить сотрудника — попроси его написать боту /start.\n"
         "После регистрации ты получишь уведомление и сможешь выбрать его роль."
     )
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
 
 @dp.message(F.text == "📖 Управление базой знаний")
 async def manage_knowledge(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
-    sent = await message.answer("Управление базой знаний:", reply_markup=knowledge_menu())
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer("Управление базой знаний:", reply_markup=knowledge_menu())
 
 @dp.message(F.text == "📊 Аналитика")
 async def analytics(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if not has_access(role, ["сказочный_полковник"], roles_list):
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
-    sent = await message.answer("Аналитика — в разработке.")
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
-    # Возвращаем в главное меню
-    if role:
-        menu_msg = await message.answer("Главное меню:", reply_markup=main_menu(role, roles=await get_roles(message.from_user.id)))
-    else:
-        menu_msg = await message.answer("Главное меню:")
-    if state:
-        await state.update_data(last_bot_msg_id=menu_msg.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer("Аналитика — в разработке.")
 
 @dp.message(F.text == "🔙 Назад")
 async def go_back(message: Message, role: str = None, state: FSMContext = None):
     if role:
         roles_list = await get_roles(message.from_user.id)
-        sent = await message.answer("Главное меню:", reply_markup=main_menu(role, roles=roles_list))
+        await message.answer("Главное меню:", reply_markup=main_menu(role, roles=roles_list))
     else:
-        sent = await message.answer("Главное меню:")
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Главное меню:")
 
 # ─── Кнопки графика ─────────────────────────────────────────
 
 @dp.message(F.text == "📆 Добавить смены на месяц")
 async def btn_newshift(message: Message, role: str = None, state: FSMContext = None):
-    from utils import has_access
     roles_list = await get_roles(message.from_user.id)
-    result = has_access(role, ["менеджер", "сказочный_полковник"], roles_list)
-    sent = await message.answer("Роль: " + str(role) + "\nhas_access: " + str(result))
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
-    if not result:
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+    if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
+        await message.answer("Нет доступа.")
         return
     from handlers.schedule import new_shift_start
     await new_shift_start(message, role=role, state=state)
@@ -406,9 +340,7 @@ async def btn_newshift(message: Message, role: str = None, state: FSMContext = N
 async def btn_addshift(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
     from handlers.schedule import add_single_shift_start
     await add_single_shift_start(message, role=role, state=state)
@@ -417,9 +349,7 @@ async def btn_addshift(message: Message, role: str = None, state: FSMContext = N
 async def btn_delshift(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
     from handlers.schedule import del_shift_start
     await del_shift_start(message, state=state)
@@ -428,9 +358,7 @@ async def btn_delshift(message: Message, role: str = None, state: FSMContext = N
 async def btn_schedules(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if not has_access(role, ["менеджер", "сказочный_полковник"], roles_list):
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
     from handlers.schedule import manage_schedules_entry
     await manage_schedules_entry(message, role=role, state=state)
@@ -441,27 +369,19 @@ async def btn_schedules(message: Message, role: str = None, state: FSMContext = 
 async def manage_roles(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if "owner" not in roles_list:
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
-    sent = await message.answer("Управление ролями:", reply_markup=roles_menu())
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer("Управление ролями:", reply_markup=roles_menu())
 
 @dp.message(F.text == "📋 Роли сотрудников")
 async def list_roles(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if "owner" not in roles_list:
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
     db = await load_db()
     if not db:
-        sent = await message.answer("Нет сотрудников.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет сотрудников.")
         return
     text = "Роли сотрудников:\n\n"
     for uid, info in db.items():
@@ -476,17 +396,13 @@ async def list_roles(message: Message, role: str = None, state: FSMContext = Non
             roles = roles_raw if roles_raw else []
         roles_text = ", ".join([ALL_ROLES.get(r, r) for r in roles if r])
         text += "• " + fullname + " — " + (roles_text or "нет роли") + "\n"
-    sent = await message.answer(text)
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer(text)
 
 @dp.message(F.text == "➕ Добавить роль сотруднику")
 async def add_role_start(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if "owner" not in roles_list:
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
     db = await load_db()
     employees = [(uid, info["fullname"]) for uid, info in db.items() if info.get("fullname")]
@@ -494,9 +410,7 @@ async def add_role_start(message: Message, role: str = None, state: FSMContext =
         [InlineKeyboardButton(text=fullname, callback_data="ar_user_" + uid)]
         for uid, fullname in employees
     ])
-    sent = await message.answer("Выбери сотрудника:", reply_markup=keyboard)
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer("Выбери сотрудника:", reply_markup=keyboard)
     await state.set_state(AddRoleState.waiting_user)
 
 @dp.callback_query(lambda c: c.data.startswith("ar_user_"))
@@ -505,31 +419,23 @@ async def add_role_get_user(callback: CallbackQuery, state: FSMContext = None):
     db = await load_db()
     user = db.get(uid)
     if not user:
-        sent = await callback.message.answer("Пользователь не найден.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+        await callback.message.answer("Пользователь не найден.")
         return
     existing_roles = await get_roles(int(uid))
     if len(existing_roles) >= 3:
-        sent = await callback.message.answer(
-            "У " + user["fullname"] + " уже 3 роли!\nСначала удалите одну."
-        )
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+        await callback.message.answer("У " + user["fullname"] + " уже 3 роли!\nСначала удалите одну.")
         await callback.answer()
         return
     await state.update_data(target_uid=uid, target_fullname=user["fullname"])
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=label, callback_data="ar_role_" + role)]
-        for role, label in ALL_ROLES.items()
-        if role not in existing_roles
+        [InlineKeyboardButton(text=label, callback_data="ar_role_" + r)]
+        for r, label in ALL_ROLES.items()
+        if r not in existing_roles
     ])
-    sent = await callback.message.answer(
+    await callback.message.answer(
         "Сотрудник: " + user["fullname"] + "\nВыбери роль для добавления:",
         reply_markup=keyboard
     )
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
     await callback.answer()
     await state.set_state(AddRoleState.waiting_role)
 
@@ -542,10 +448,9 @@ async def add_role_confirm(callback: CallbackQuery, state: FSMContext = None):
     db = await load_db()
     user = db.get(uid)
     await set_user_role(int(uid), fullname, role, user.get("username", ""))
-    sent = await callback.message.answer("Роль " + ALL_ROLES.get(role, role) + " добавлена " + fullname)
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+    await callback.message.answer("Роль " + ALL_ROLES.get(role, role) + " добавлена " + fullname)
     try:
+        new_role = await get_role(int(uid))
         new_roles = await get_roles(int(uid))
         await bot.send_message(int(uid), "Тебе добавлена роль: " + ALL_ROLES.get(role, role), reply_markup=main_menu(new_role, roles=new_roles))
     except:
@@ -557,9 +462,7 @@ async def add_role_confirm(callback: CallbackQuery, state: FSMContext = None):
 async def remove_role_start(message: Message, role: str = None, state: FSMContext = None):
     roles_list = await get_roles(message.from_user.id)
     if "owner" not in roles_list:
-        sent = await message.answer("Нет доступа.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет доступа.")
         return
     db = await load_db()
     employees = [(uid, info["fullname"]) for uid, info in db.items() if info.get("fullname")]
@@ -567,9 +470,7 @@ async def remove_role_start(message: Message, role: str = None, state: FSMContex
         [InlineKeyboardButton(text=fullname, callback_data="rr_user_" + uid)]
         for uid, fullname in employees
     ])
-    sent = await message.answer("Выбери сотрудника:", reply_markup=keyboard)
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer("Выбери сотрудника:", reply_markup=keyboard)
     await state.set_state(RemoveRoleState.waiting_user)
 
 @dp.callback_query(lambda c: c.data.startswith("rr_user_"))
@@ -578,15 +479,11 @@ async def remove_role_get_user(callback: CallbackQuery, state: FSMContext = None
     db = await load_db()
     user = db.get(uid)
     if not user:
-        sent = await callback.message.answer("Пользователь не найден.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+        await callback.message.answer("Пользователь не найден.")
         return
     existing_roles = await get_roles(int(uid))
     if not existing_roles:
-        sent = await callback.message.answer("У " + user["fullname"] + " нет ролей.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+        await callback.message.answer("У " + user["fullname"] + " нет ролей.")
         await callback.answer()
         return
     await state.update_data(target_uid=uid, target_fullname=user["fullname"])
@@ -594,12 +491,10 @@ async def remove_role_get_user(callback: CallbackQuery, state: FSMContext = None
         [InlineKeyboardButton(text=ALL_ROLES.get(r, r), callback_data="rr_role_" + r)]
         for r in existing_roles
     ])
-    sent = await callback.message.answer(
+    await callback.message.answer(
         "Сотрудник: " + user["fullname"] + "\nКакую роль убрать?",
         reply_markup=keyboard
     )
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
     await callback.answer()
     await state.set_state(RemoveRoleState.waiting_role)
 
@@ -609,17 +504,9 @@ async def remove_role_confirm(callback: CallbackQuery, state: FSMContext = None)
     data = await state.get_data()
     uid = data["target_uid"]
     fullname = data["target_fullname"]
-    db = await load_db()
-    roles = await get_roles(int(uid))
-    if role_to_remove in roles:
-        roles.remove(role_to_remove)
-    db[uid]["roles"] = roles
-    db[uid]["role"] = roles[0] if roles else None
     from database import remove_role
     await remove_role(int(uid), role_to_remove)
-    sent = await callback.message.answer("Роль " + ALL_ROLES.get(role_to_remove, role_to_remove) + " убрана у " + fullname)
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=callback.message.chat.id)
+    await callback.message.answer("Роль " + ALL_ROLES.get(role_to_remove, role_to_remove) + " убрана у " + fullname)
     try:
         new_role = await get_role(int(uid))
         new_roles = await get_roles(int(uid))
@@ -634,22 +521,16 @@ async def remove_role_confirm(callback: CallbackQuery, state: FSMContext = None)
 @dp.message(Command("setadmin"))
 async def set_admin(message: Message, state: FSMContext = None):
     if message.from_user.id != OWNER_ID:
-        sent = await message.answer("Нет прав.")
-        if state:
-            await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+        await message.answer("Нет прав.")
         return
     db = await load_db()
     fullname = db.get(str(message.from_user.id), {}).get("fullname", message.from_user.first_name)
     await set_user_role(message.from_user.id, fullname, "owner")
-    sent = await message.answer("Ты назначен Owner!", reply_markup=main_menu("owner"))
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+    await message.answer("Ты назначен Owner!", reply_markup=main_menu("owner"))
 
 @dp.message(Command("myid"))
-async def myid(message: Message, state: FSMContext = None):
-    sent = await message.answer("Твой ID: " + str(message.from_user.id))
-    if state:
-        await state.update_data(last_bot_msg_id=sent.message_id, last_bot_chat_id=message.chat.id)
+async def myid(message: Message):
+    await message.answer("Твой ID: " + str(message.from_user.id))
 
 @dp.message(Command("cancel"))
 async def cancel_handler(message: Message, state: FSMContext):
@@ -659,45 +540,10 @@ async def cancel_handler(message: Message, state: FSMContext):
         return
     await state.clear()
     user_role = await get_role(message.from_user.id)
-    await message.answer("Действие отменено.", reply_markup=main_menu(user_role))
+    user_roles = await get_roles(message.from_user.id)
+    await message.answer("Действие отменено.", reply_markup=main_menu(user_role, roles=user_roles))
 
-async def check_staff_on_start():
-    from handlers.schedule import add_to_staff_sheet, is_in_staff
-    from database import save_db
-    db = await load_db()
-    changed = False
-    for uid, info in db.items():
-        if "roles" not in info and info.get("role"):
-            db[uid]["roles"] = [info["role"]]
-            changed = True
-        if info.get("fullname"):
-            roles = info.get("roles", [])
-            if isinstance(roles, str):
-                roles = [roles]
-            for role in roles:
-                if role and role != "owner":
-                    if not await is_in_staff(info["fullname"]):
-                        await add_to_staff_sheet(info["fullname"], role)
-                        print("Добавлен в ШТАТ: " + info["fullname"] + " — " + role)
-    if changed:
-        await save_db(db)
-        print("База данных обновлена — добавлено поле roles")
-
-async def sync_staff_hourly():
-    from handlers.schedule import sync_staff_to_schedule
-    from handlers.motivation import sync_staff_to_motivation
-    from database import get_active_sheet
-    while True:
-        await asyncio.sleep(3600)
-        active_schedule = await get_active_sheet("schedule")
-        if active_schedule:
-            sync_staff_to_schedule(active_schedule)
-        active_motivation = await get_active_sheet("motivation")
-        if active_motivation:
-            sync_staff_to_motivation(active_motivation)
-
-class BugReportState(StatesGroup):
-    waiting_text = State()
+# ─── Отчёт об ошибке ────────────────────────────────────────
 
 @dp.message(F.text == "🐛 Ошибка")
 async def bug_report_start(message: Message, state: FSMContext = None):
@@ -716,10 +562,10 @@ async def bug_report_send(message: Message, state: FSMContext = None):
     actions_text = "\n".join([f"  {i+1}. {a}" for i, a in enumerate(actions)]) or "нет данных"
 
     report = (
-        f"🐛 Отчёт об ошибке\n\n"
-        f"От: {fullname} (@{message.from_user.username or 'без username'})\n\n"
-        f"Описание:\n{text}\n\n"
-        f"Последние действия:\n{actions_text}"
+        "🐛 Отчёт об ошибке\n\n"
+        "От: " + fullname + " (@" + (message.from_user.username or "без username") + ")\n\n"
+        "Описание:\n" + text + "\n\n"
+        "Последние действия:\n" + actions_text
     )
 
     for uid, info in db.items():
@@ -731,7 +577,7 @@ async def bug_report_send(message: Message, state: FSMContext = None):
         if any(r in roles for r in ["owner", "сказочный_полковник"]):
             try:
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Принято", callback_data=f"bug_ack_{message.from_user.id}")]
+                    [InlineKeyboardButton(text="✅ Принято", callback_data="bug_ack_" + str(message.from_user.id))]
                 ])
                 await bot.send_message(int(uid), report, reply_markup=kb)
             except:
@@ -749,6 +595,38 @@ async def bug_ack(callback: CallbackQuery):
         await bot.send_message(reporter_id, "✅ Твой отчёт принят руководством!")
     except:
         pass
+
+# ─── Запуск ─────────────────────────────────────────────────
+
+async def check_staff_on_start():
+    from handlers.schedule import add_to_staff_sheet, is_in_staff
+    db = await load_db()
+    for uid, info in db.items():
+        if info.get("fullname"):
+            roles = info.get("roles", [])
+            if isinstance(roles, str):
+                try:
+                    roles = json.loads(roles)
+                except:
+                    roles = []
+            for role in roles:
+                if role and role != "owner":
+                    if not await is_in_staff(info["fullname"]):
+                        await add_to_staff_sheet(info["fullname"], role)
+                        print("Добавлен в ШТАТ: " + info["fullname"] + " — " + role)
+
+async def sync_staff_hourly():
+    from handlers.schedule import sync_staff_to_schedule
+    from handlers.motivation import sync_staff_to_motivation
+    from database import get_active_sheet
+    while True:
+        await asyncio.sleep(3600)
+        active_schedule = await get_active_sheet("schedule")
+        if active_schedule:
+            await sync_staff_to_schedule(active_schedule)
+        active_motivation = await get_active_sheet("motivation")
+        if active_motivation:
+            await sync_staff_to_motivation(active_motivation)
 
 async def main():
     print("Бот запущен!")
