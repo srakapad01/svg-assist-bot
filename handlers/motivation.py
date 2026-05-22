@@ -248,12 +248,13 @@ async def process_motivation(message, state: FSMContext, from_user, bot):
         amount_text = f" ({mtype['amount']}₽)"
 
     if success:
+        comment_line = "Комментарий: " + comment + "\n" if comment else ""
         await message.answer(
-            f"Запись добавлена!\n\n"
+            "Запись добавлена!\n\n"
             f"Сотрудник: {employee_fullname}\n"
             f"Тип: {emoji} {mtype['name']}{amount_text}\n"
             f"День: {day}\n"
-            f"{'Комментарий: ' + comment + '\n' if comment else ''}"
+            + comment_line +
             f"Лист: {sheet_name}"
         )
     else:
