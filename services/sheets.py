@@ -1,5 +1,6 @@
 # services/sheets.py
 import asyncio
+import os
 import gspread
 from google.oauth2.service_account import Credentials
 from functools import wraps
@@ -17,8 +18,17 @@ def run_sync(func):
     return wrapper
 
 class AsyncSheetsClient:
-    def __init__(self, credentials_file: str = "credentials.json"):
-        self.creds = Credentials.from_service_account_file(credentials_file, scopes=SCOPES)
+    def __init__(self):
+        import json as _json
+        credentials_json = os.getenv("GOOGLE_CREDENTIALS")
+        if credentials_json:
+            self.creds = Credentials.from_service_account_info(
+                _json.loads(credentials_json), scopes=SCOPES
+            )
+        else:
+            self.creds = Credentials.from_service_account_file(
+                "credentials.json", scopes=SCOPES
+            )
         self.client = None
 
     @run_sync
