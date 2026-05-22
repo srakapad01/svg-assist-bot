@@ -18,11 +18,11 @@ def get_sheets(spreadsheet_id: str):
         "https://www.googleapis.com/auth/drive"
     ]
     import json as _json
-credentials_json = os.getenv("GOOGLE_CREDENTIALS")
-if credentials_json:
-    creds = Credentials.from_service_account_info(_json.loads(credentials_json), scopes=SCOPES)
-else:
-    creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+    credentials_json = os.getenv("GOOGLE_CREDENTIALS")
+    if credentials_json:
+        creds = Credentials.from_service_account_info(_json.loads(credentials_json), scopes=SCOPES)
+    else:
+        creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
     client = gspread.authorize(creds)
     spreadsheet = client.open_by_key(spreadsheet_id)
     return [ws.title for ws in spreadsheet.worksheets()]
